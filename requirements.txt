@@ -1,0 +1,5 @@
+folium>=0.12.1
+mavsdk>=1.4.0
+asyncio>=3.4.3
+dataclasses>=0.8; python_version < '3.7'
+typing>=3.7.4.3; python_version < '3.5'
