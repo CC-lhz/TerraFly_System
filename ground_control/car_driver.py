@@ -7,16 +7,20 @@ from . import config
 class CarDriver:
     """地面车底层驱动类，负责与Arduino通信和基本控制"""
     
-    def __init__(self):
+    def __init__(self, use_ultrasonic=True, use_lidar=True):
         self.logger = logging.getLogger(__name__)
         self.serial = None
+        self.use_ultrasonic = use_ultrasonic
+        self.use_lidar = use_lidar
+        
         self.sensor_data = {
-            'ultrasonic': [0.0] * 4,  # 4个超声波传感器数据
-            'lidar': 0.0,             # TFLuna激光测距数据
-            'battery': 0.0,           # 电池电量
-            'charging': False          # 是否在充电
+            'ultrasonic': [0.0] * 4 if use_ultrasonic else None,  # 超声波传感器数据（可选）
+            'lidar': 0.0 if use_lidar else None,                   # TFLuna激光测距数据（可选）
+            'battery': 0.0,                                        # 电池电量
+            'charging': False                                      # 是否在充电
         }
         self.motor_speed = [0] * 4    # 4个电机的当前速度
+        self.obstacle_detected = False # 障碍物检测状态
         
     def initialize(self) -> bool:
         """初始化串口连接"""

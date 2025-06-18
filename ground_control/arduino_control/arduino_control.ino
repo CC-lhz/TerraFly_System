@@ -221,21 +221,72 @@ float readBatteryVoltage() {
   return raw * (48.0 / 1023.0);
 }
 
-void updateSensors() {
-  // 更新超声波数据
-  ultrasonicDist[0] = readUltrasonic(ULTRA1_TRIG, ULTRA1_ECHO);
-  ultrasonicDist[1] = readUltrasonic(ULTRA2_TRIG, ULTRA2_ECHO);
-  ultrasonicDist[2] = readUltrasonic(ULTRA3_TRIG, ULTRA3_ECHO);
-  ultrasonicDist[3] = readUltrasonic(ULTRA4_TRIG, ULTRA4_ECHO);
+void updateUltrasonicSensors() {
+  if (!useUltrasonic) return;
   
-  // 更新激光测距数据
-  lidarDist = readLidar();
+  // 更新4个超声波传感器数据
+  ultrasonicDist[0] = getUltrasonicDistance(ULTRA1_TRIG, ULTRA1_ECHO);
+  ultrasonicDist[1] = getUltrasonicDistance(ULTRA2_TRIG, ULTRA2_ECHO);
+  ultrasonicDist[2] = getUltrasonicDistance(ULTRA3_TRIG, ULTRA3_ECHO);
+  ultrasonicDist[3] = getUltrasonicDistance(ULTRA4_TRIG, ULTRA4_ECHO);
+}
+
+float getUltrasonicDistance(int trigPin, int echoPin) {
+  // 发送触发信号
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
   
-  // 更新电池电压
-  batteryVoltage = readBatteryVoltage();
+  // 读取回波时间并计算距离（厘米）
+  float duration = pulseIn(echoPin, HIGH);
+  return duration * 0.034 / 2.0;
+}
+
+void updateLidarSensor() {
+  if (!useLidar) return;
   
-  // 更新充电状态
-  isCharging = digitalRead(CHARGE_STATUS);
+  // 读取TFLuna数据
+  if (Serial2.available() >= 9) {
+    if (Serial2.read() == 0x59 && Serial2.read() == 0x59) {
+      unsigned char buffer[7];
+      Serial2.readBytes(buffer, 7);
+      
+      // 计算距离（厘米）
+      lidarDist = buffer[0] + buffer[1] * 256;
+    }
+  }
+}
+
+void updateBatteryStatus() {
+  // 读取电池电压
+  int rawValue = analogRead(BATTERY_PIN);
+  batteryVoltage = rawValue * (5.0 / 1023.0) * 11.0;  // 电压分压比例
+  
+  // 读取充电状态
+  isCharging = digitalRead(CHARGE_STATUS) == HIGH;
+}
+
+void sendUltrasonicData() {
+  Serial.print("US,");
+  for (int i = 0; i < 4; i++) {
+    Serial.print(ultrasonicDist[i]);
+    if (i < 3) Serial.print(",");
+  }
+  Serial.println();
+}
+
+void sendLidarData() {
+  Serial.print("LD,");
+  Serial.println(lidarDist);
+}
+
+void sendBatteryData() {
+  Serial.print("BAT,");
+  Serial.print(batteryVoltage);
+  Serial.print(",");
+  Serial.println(isCharging ? "1" : "0");
 }
 
 void sendSensorData() {
