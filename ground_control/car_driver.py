@@ -3,6 +3,7 @@ import time
 from typing import Dict, List, Tuple
 import logging
 from . import config
+from ..common.gps_manager import GPSManager, GPSData
 
 class CarDriver:
     """地面车底层驱动类，负责与Arduino通信和基本控制"""
@@ -10,6 +11,7 @@ class CarDriver:
     def __init__(self, use_ultrasonic=True, use_lidar=True):
         self.logger = logging.getLogger(__name__)
         self.serial = None
+        self.gps_manager = GPSManager(config.GPS_PORT, config.GPS_BAUDRATE)
         self.use_ultrasonic = use_ultrasonic
         self.use_lidar = use_lidar
         
@@ -21,10 +23,12 @@ class CarDriver:
         }
         self.motor_speed = [0] * 4    # 4个电机的当前速度
         self.obstacle_detected = False # 障碍物检测状态
+        self.gps_data = None          # 最新的GPS数据
         
     def initialize(self) -> bool:
-        """初始化串口连接"""
+        """初始化串口连接和GPS模块"""
         try:
+            # 初始化Arduino串口
             self.serial = serial.Serial(
                 port=config.SERIAL_PORT,
                 baudrate=config.BAUDRATE,
@@ -32,16 +36,29 @@ class CarDriver:
             )
             time.sleep(2)  # 等待Arduino重置
             self.logger.info(f"已连接到Arduino: {config.SERIAL_PORT}")
+            
+            # 初始化GPS模块
+            if not self.gps_manager.initialize():
+                self.logger.error("GPS模块初始化失败")
+                return False
+                
+            # 启动GPS数据更新线程
+            import threading
+            self.gps_thread = threading.Thread(target=self._update_gps, daemon=True)
+            self.gps_thread.start()
+            
             return True
+            
         except Exception as e:
-            self.logger.error(f"串口连接失败: {str(e)}")
+            self.logger.error(f"初始化失败: {str(e)}")
             return False
             
     def close(self):
-        """关闭串口连接"""
+        """关闭串口连接和GPS模块"""
         if self.serial and self.serial.is_open:
             self.serial.close()
             self.logger.info("串口连接已关闭")
+        self.gps_manager.close()
             
     def _send_command(self, cmd: str) -> bool:
         """发送命令到Arduino"""
@@ -63,6 +80,45 @@ class CarDriver:
         except Exception as e:
             self.logger.error(f"读取响应失败: {str(e)}")
             return ""
+            
+    def _update_gps(self):
+        """GPS数据更新线程"""
+        while True:
+            try:
+                self.gps_data = self.gps_manager.update()
+                if self.gps_data:
+                    self.logger.debug(f"GPS位置更新: {self.gps_data.latitude}, {self.gps_data.longitude}")
+                time.sleep(1)  # 每秒更新一次GPS数据
+            except Exception as e:
+                self.logger.error(f"GPS数据更新错误: {str(e)}")
+                time.sleep(5)  # 出错后等待5秒再重试
+                
+    def get_position(self) -> Tuple[float, float, float]:
+        """获取当前位置
+        Returns:
+            Tuple[float, float, float]: (纬度, 经度, 海拔)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_position()
+        return (0.0, 0.0, 0.0)
+        
+    def get_speed_heading(self) -> Tuple[float, float]:
+        """获取当前速度和航向
+        Returns:
+            Tuple[float, float]: (速度, 航向角)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_speed_heading()
+        return (0.0, 0.0)
+        
+    def get_fix_info(self) -> Tuple[int, int]:
+        """获取GPS定位信息
+        Returns:
+            Tuple[int, int]: (卫星数量, 定位质量)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_fix_info()
+        return (0, 0)
             
     def set_motor_speed(self, speeds: List[int]) -> bool:
         """设置电机速度
@@ -104,74 +160,7 @@ class CarDriver:
         elif direction == 'right':
             speeds = [-speed, speed, -speed, speed]
         else:
-            self.logger.error(f"未知移动方向: {direction}")
+            self.logger.error(f"无效的移动方向: {direction}")
             return False
             
         return self.set_motor_speed(speeds)
-        
-    def turn(self, angle: float, speed: int) -> bool:
-        """原地转向指定角度
-        Args:
-            angle: 转向角度，正值顺时针，负值逆时针
-            speed: 转向速度，0~255
-        """
-        speed = max(0, min(255, speed))
-        
-        if angle > 0:  # 顺时针
-            speeds = [-speed, speed, -speed, speed]
-        else:  # 逆时针
-            speeds = [speed, -speed, speed, -speed]
-            
-        # 根据角度计算转向时间
-        turn_time = abs(angle) / (360.0 / config.TURN_TIME_360)
-        
-        if self.set_motor_speed(speeds):
-            time.sleep(turn_time)
-            return self.stop()
-        return False
-        
-    def update_sensors(self) -> bool:
-        """更新传感器数据"""
-        try:
-            # 请求传感器数据
-            if not self._send_command("S"):
-                return False
-                
-            # 读取响应
-            response = self._read_response()
-            if not response.startswith("DATA:"):
-                return False
-                
-            # 解析数据
-            # 格式: "DATA:u1,u2,u3,u4,l,b,c"
-            # u1-u4: 超声波数据, l: 激光测距, b: 电池电量, c: 充电状态
-            data = response[5:].split(',')
-            if len(data) != 7:
-                return False
-                
-            self.sensor_data['ultrasonic'] = [float(x) for x in data[:4]]
-            self.sensor_data['lidar'] = float(data[4])
-            self.sensor_data['battery'] = float(data[5])
-            self.sensor_data['charging'] = (data[6] == '1')
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"更新传感器数据失败: {str(e)}")
-            return False
-            
-    def get_sensor_data(self) -> Dict:
-        """获取传感器数据"""
-        return self.sensor_data.copy()
-        
-    def get_motor_speed(self) -> List[int]:
-        """获取电机速度"""
-        return self.motor_speed.copy()
-        
-    def start_charging(self) -> bool:
-        """开始无线充电"""
-        return self._send_command("C,1")
-        
-    def stop_charging(self) -> bool:
-        """停止无线充电"""
-        return self._send_command("C,0")

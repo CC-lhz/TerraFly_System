@@ -3,6 +3,10 @@
 # 无人机连接配置
 CONNECTION_URI = "serial:///dev/ttyAMA0:57600"  # Pixhawk 连接
 
+# GPS模块配置
+GPS_PORT = "/dev/ttyUSB0"  # GPS模块串口
+GPS_BAUDRATE = 9600       # GPS波特率
+
 # 飞行参数配置
 TAKEOFF_ALTITUDE = 30.0  # 起飞高度 (米)
 CRUISE_ALTITUDE = 25.0   # 巡航高度 (米)

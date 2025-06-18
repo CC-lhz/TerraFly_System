@@ -3,6 +3,7 @@ from mavsdk import System
 from typing import Dict, Tuple
 import logging
 from . import config
+from ..common.gps_manager import GPSManager, GPSData
 
 class DroneDriver:
     """无人机底层驱动类，负责与PX4飞控通信和基本控制"""
@@ -10,12 +11,14 @@ class DroneDriver:
     def __init__(self):
         self.drone = System()
         self.logger = logging.getLogger(__name__)
+        self.gps_manager = GPSManager(config.GPS_PORT, config.GPS_BAUDRATE)
         self.motor_status = [False] * 4  # 四个电机状态
         self.imu_data = {
             'acceleration': (0.0, 0.0, 0.0),
             'angular_velocity': (0.0, 0.0, 0.0),
             'attitude': (0.0, 0.0, 0.0)  # roll, pitch, yaw
         }
+        self.gps_data = None  # 最新的GPS数据
         
     async def initialize(self):
         """初始化无人机系统"""
@@ -29,14 +32,22 @@ class DroneDriver:
                 if state.is_connected:
                     self.logger.info("PX4连接成功")
                     break
+            
+            # 初始化GPS模块
+            if not self.gps_manager.initialize():
+                self.logger.error("GPS模块初始化失败")
+                return False
                     
             # 开始传感器数据监控
             asyncio.create_task(self._monitor_imu())
             asyncio.create_task(self._monitor_motors())
+            asyncio.create_task(self._monitor_gps())
+            
+            return True
             
         except Exception as e:
             self.logger.error(f"初始化失败: {str(e)}")
-            raise
+            return False
             
     async def _monitor_imu(self):
         """监控IMU数据"""
@@ -74,6 +85,45 @@ class DroneDriver:
         except Exception as e:
             self.logger.error(f"电机状态监控错误: {str(e)}")
             
+    async def _monitor_gps(self):
+        """监控GPS数据"""
+        while True:
+            try:
+                self.gps_data = self.gps_manager.update()
+                if self.gps_data:
+                    self.logger.debug(f"GPS位置更新: {self.gps_data.latitude}, {self.gps_data.longitude}")
+                await asyncio.sleep(1)  # 每秒更新一次GPS数据
+            except Exception as e:
+                self.logger.error(f"GPS数据监控错误: {str(e)}")
+                await asyncio.sleep(5)  # 出错后等待5秒再重试
+            
+    def get_position(self) -> Tuple[float, float, float]:
+        """获取当前位置
+        Returns:
+            Tuple[float, float, float]: (纬度, 经度, 海拔)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_position()
+        return (0.0, 0.0, 0.0)
+        
+    def get_speed_heading(self) -> Tuple[float, float]:
+        """获取当前速度和航向
+        Returns:
+            Tuple[float, float]: (速度, 航向角)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_speed_heading()
+        return (0.0, 0.0)
+        
+    def get_fix_info(self) -> Tuple[int, int]:
+        """获取GPS定位信息
+        Returns:
+            Tuple[int, int]: (卫星数量, 定位质量)
+        """
+        if self.gps_data:
+            return self.gps_manager.get_fix_info()
+        return (0, 0)
+            
     async def arm(self) -> bool:
         """解锁无人机"""
         try:
@@ -104,84 +154,3 @@ class DroneDriver:
         except Exception as e:
             self.logger.error(f"起飞失败: {str(e)}")
             return False
-            
-    async def land(self) -> bool:
-        """降落"""
-        try:
-            await self.drone.action.land()
-            self.logger.info("正在执行降落")
-            return True
-        except Exception as e:
-            self.logger.error(f"降落失败: {str(e)}")
-            return False
-            
-    async def set_attitude(self, roll: float, pitch: float,
-                          yaw: float, thrust: float) -> bool:
-        """设置姿态（角度和推力）"""
-        try:
-            await self.drone.offboard.set_attitude({
-                'roll_deg': roll,
-                'pitch_deg': pitch,
-                'yaw_deg': yaw,
-                'thrust_value': thrust
-            })
-            return True
-        except Exception as e:
-            self.logger.error(f"姿态控制失败: {str(e)}")
-            return False
-            
-    async def set_velocity(self, vx: float, vy: float,
-                          vz: float, yaw_rate: float) -> bool:
-        """设置速度（体坐标系，米/秒）"""
-        try:
-            await self.drone.offboard.set_velocity_body({
-                'forward_m_s': vx,
-                'right_m_s': vy,
-                'down_m_s': vz,
-                'yawspeed_deg_s': yaw_rate
-            })
-            return True
-        except Exception as e:
-            self.logger.error(f"速度控制失败: {str(e)}")
-            return False
-            
-    async def goto_position(self, latitude: float, longitude: float,
-                           altitude: float, yaw: float) -> bool:
-        """飞到指定位置（全球坐标，度）"""
-        try:
-            await self.drone.action.goto_location(latitude,
-                                                 longitude,
-                                                 altitude,
-                                                 yaw)
-            return True
-        except Exception as e:
-            self.logger.error(f"位置控制失败: {str(e)}")
-            return False
-            
-    async def get_position(self) -> Tuple[float, float, float]:
-        """获取当前位置（纬度、经度、高度）"""
-        try:
-            async for position in self.drone.telemetry.position():
-                return (position.latitude_deg,
-                        position.longitude_deg,
-                        position.relative_altitude_m)
-        except Exception as e:
-            self.logger.error(f"获取位置失败: {str(e)}")
-            return (0.0, 0.0, 0.0)
-            
-    async def get_battery(self) -> float:
-        """获取电池电量百分比"""
-        try:
-            async for battery in self.drone.telemetry.battery():
-                return battery.remaining_percent
-        except Exception as e:
-            self.logger.error(f"获取电池状态失败: {str(e)}")
-            return 0.0
-            
-    def get_imu_data(self) -> Dict:
-        """获取IMU数据"""
-        return self.imu_data.copy()
-        
-    def get_motor_status(self) -> List[bool]:
-        """获取电机状态"""
-        return self.motor_status.copy()

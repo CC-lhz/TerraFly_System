@@ -56,6 +56,9 @@ flowchart LR
   - 30A 电调
   - 10×4.5 折叠碳纤维螺旋桨
 - **视觉系统**：Intel RealSense D435i
+- **定位系统**：
+  - 内置GPS模块（u-blox NEO-M8N）
+  - RTK定位模块（可选）
 - **通信系统**：5G USB Modem + 鼠洞协议（MAVLink over UDP）
 
 ### 2. 地面车平台
@@ -69,6 +72,7 @@ flowchart LR
 - **传感系统**：
   - HC-SR04 超声波 ×4
   - TFLuna LiDAR
+  - GPS模块（u-blox NEO-6M）
 - **电源系统**：
   - 48V Li-ion 电池组
   - Qi 无线充电模块
@@ -92,6 +96,11 @@ flowchart LR
   - 方案1：USB转TTL（FTDI）或直接UART线（TELEM2）
   - 方案2：通过5G/USB Modem建立UDP网络连接
   - 配置要求：PX4固件需允许MAVLink over UART
+
+- **GPS模块连接**：
+  - 无人机：连接到Pixhawk的GPS端口
+  - 无人车：通过USB转TTL连接到Raspberry Pi的USB端口
+  - 配置要求：波特率9600，NMEA输出
 
 - **外设连接**：
   - RealSense D435i：USB 3.0接口
