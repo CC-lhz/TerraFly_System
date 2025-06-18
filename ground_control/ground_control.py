@@ -5,6 +5,8 @@ import math
 from typing import List, Tuple
 from enum import Enum
 import random
+from rl_path_planner import RLPathPlanner
+import torch
 
 class PathStatus(Enum):
     """路径执行状态"""
@@ -20,7 +22,7 @@ class GroundControl:
     通过串口与Arduino通信，发送速度命令并读取传感器数据进行避障。
     支持超声波传感器和激光雷达的可选配置。
     """
-    def __init__(self, use_ultrasonic=True, use_lidar=True):
+    def __init__(self, use_ultrasonic=True, use_lidar=True, rl_model_path=None):
         self.use_ultrasonic = use_ultrasonic
         self.use_lidar = use_lidar
         
@@ -52,6 +54,13 @@ class GroundControl:
         self.current_speed = 0
         self.current_heading = 0  # 当前航向角（弧度）
         self.position = (0, 0)  # 当前位置(x, y)
+        
+        # 初始化强化学习模型
+        self.rl_planner = RLPathPlanner()
+        if rl_model_path:
+            self.rl_planner.load_model(rl_model_path)
+            print(f"加载强化学习模型: {rl_model_path}")
+        self.use_rl = rl_model_path is not None
 
     def set_speed(self, left_speed, right_speed):
         """
@@ -155,7 +164,7 @@ class GroundControl:
     def avoid_obstacle(self):
         """
         执行避障操作。
-        使用分阶段的避障策略，包括停止、后退和转向。
+        根据是否启用强化学习模型选择避障策略。
         """
         current_time = time.time()
         
@@ -169,25 +178,43 @@ class GroundControl:
             self.last_avoid_time = current_time
             self.path_status = PathStatus.AVOIDING
             
-            # 随机选择避障方向
-            self.avoid_turn_direction = random.choice([-1, 1])
-            
-            # 停止并后退
-            self.stop()
-            time.sleep(0.5)
-            self.set_speed(-config.REVERSE_SPEED, -config.REVERSE_SPEED)
-            time.sleep(1.0)
-            
-            # 转向避障
-            turn_speed = config.TURN_SPEED * self.avoid_turn_direction
-            self.set_speed(-turn_speed, turn_speed)
-            time.sleep(1.0)
-            
-            # 继续前进
-            self.set_speed(config.FORWARD_SPEED, config.FORWARD_SPEED)
-            
-            # 更新局部路径
-            self.replan_local_path()
+            if self.use_rl and len(self.waypoints) > self.current_waypoint_index:
+                # 使用强化学习模型进行避障决策
+                target_pos = self.waypoints[self.current_waypoint_index]
+                state = self.rl_planner.get_state(self.position, target_pos, self.sensor_data)
+                
+                with torch.no_grad():
+                    action_idx = self.rl_planner.select_action(state)
+                    action = self.rl_planner.get_action_commands(action_idx)
+                
+                # 将RL动作转换为实际速度命令
+                left_speed = action[0] * config.FORWARD_SPEED
+                right_speed = action[1] * config.FORWARD_SPEED
+                self.set_speed(left_speed, right_speed)
+                
+                # 更新局部路径
+                self.replan_local_path()
+            else:
+                # 使用传统避障策略
+                # 随机选择避障方向
+                self.avoid_turn_direction = random.choice([-1, 1])
+                
+                # 停止并后退
+                self.stop()
+                time.sleep(0.5)
+                self.set_speed(-config.REVERSE_SPEED, -config.REVERSE_SPEED)
+                time.sleep(1.0)
+                
+                # 转向避障
+                turn_speed = config.TURN_SPEED * self.avoid_turn_direction
+                self.set_speed(-turn_speed, turn_speed)
+                time.sleep(1.0)
+                
+                # 继续前进
+                self.set_speed(config.FORWARD_SPEED, config.FORWARD_SPEED)
+                
+                # 更新局部路径
+                self.replan_local_path()
         elif self.avoiding:
             # 检查是否可以返回原路径
             if not self.check_obstacles():
