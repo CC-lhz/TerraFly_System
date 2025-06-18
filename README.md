@@ -152,6 +152,106 @@ flowchart LR
   python remote_control.py
   ```
 
+## 软件系统部署指南
+
+### 1. 主控计算机部署
+主控计算机是整个系统的中枢，负责任务调度和系统管理。
+
+**部署组件**：
+- `task_scheduler/master_computer/`：
+  - `task_manager.py`：任务管理与分配
+  - `delivery_manager.py`：配送流程管理
+  - `vehicle_manager.py`：车辆状态管理
+  - `scheduler.py`：调度算法实现
+  - `map_manager.py`：地图与路径规划
+
+- `task_scheduler/gui/`：
+  - `main_window.py`：系统主界面
+  - `vehicle_manager.py`：车辆监控界面
+  - `task_manager.py`：任务管理界面
+  - `path_planner.py`：路径规划界面
+  - `system_monitor.py`：系统状态监控
+
+**功能说明**：
+- 任务调度与分配
+- 实时状态监控
+- 路径规划优化
+- 系统管理界面
+
+### 2. 无人机伴飞电脑部署
+伴飞电脑负责无人机的飞行控制和状态管理。
+
+**部署组件**：
+- `flight_control/`：
+  - `flight_control.py`：飞行控制核心
+  - `drone_driver.py`：无人机驱动接口
+
+- `task_scheduler/drone_computer/`：
+  - `drone_controller.py`：无人机任务控制
+  - `drone_communicator.py`：与主控通信
+
+**功能说明**：
+- 飞行控制与导航
+- 任务执行管理
+- 状态监控与报告
+- 紧急情况处理
+
+### 3. 无人车车载电脑部署
+车载电脑负责无人车的运动控制和避障。
+
+**部署组件**：
+- `ground_control/`：
+  - `ground_control.py`：地面控制核心
+  - `car_driver.py`：无人车驱动接口
+  - `arduino_control/`：底层控制程序
+
+- `task_scheduler/car_computer/`：
+  - `car_controller.py`：无人车任务控制
+  - `car_communicator.py`：与主控通信
+
+**功能说明**：
+- 运动控制与避障
+- 任务执行管理
+- 传感器数据处理
+- 车辆状态监控
+
+### 部署步骤
+1. **主控计算机**：
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动主控系统
+python task_scheduler/main.py
+```
+
+2. **伴飞电脑**：
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动飞行控制
+python flight_control/flight_control.py
+
+# 启动任务控制器
+python task_scheduler/drone_computer/drone_controller.py
+```
+
+3. **车载电脑**：
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 编译上传Arduino程序
+arduino-cli compile --upload ground_control/arduino_control/arduino_control.ino
+
+# 启动地面控制
+python ground_control/ground_control.py
+
+# 启动任务控制器
+python task_scheduler/car_computer/car_controller.py
+```
+
 ## 任务调度系统
 
 ### 动态任务分配逻辑
