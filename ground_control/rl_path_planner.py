@@ -27,10 +27,10 @@ class DQN(nn.Module):
 class RLPathPlanner:
     """基于强化学习的局部路径规划器"""
     def __init__(self):
-        # 状态空间：[距离目标点的距离, 到目标点的角度, 8个方向的障碍物距离]
-        self.state_dim = 10
-        # 动作空间：[前进, 左转, 右转]
-        self.action_dim = 3
+        # 状态空间：[当前速度, 当前航向角, 与预定路径的偏差, 8个方向的障碍物距离]
+        self.state_dim = 11
+        # 动作空间：[加速, 减速, 左转, 右转, 保持]
+        self.action_dim = 5
         
         # DQN网络
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,14 +53,15 @@ class RLPathPlanner:
         self.target_update = 10  # 目标网络更新频率
         self.training_step = 0
         
-    def get_state(self, current_pos: Tuple[float, float], target_pos: Tuple[float, float], 
-                  sensor_data: Dict) -> torch.Tensor:
+    def get_state(self, current_pos: Tuple[float, float], current_vel: float, current_heading: float,
+                  path_deviation: float, sensor_data: Dict) -> torch.Tensor:
         """构建状态向量"""
-        # 计算到目标点的距离和角度
-        dx = target_pos[0] - current_pos[0]
-        dy = target_pos[1] - current_pos[1]
-        distance = math.sqrt(dx*dx + dy*dy)
-        angle = math.atan2(dy, dx)
+        # 获取当前速度和航向角
+        velocity = min(current_vel, 2.0)  # 限制最大速度为2米/秒
+        heading = current_heading
+        
+        # 获取与预定路径的偏差（限制最大偏差为2米）
+        deviation = min(abs(path_deviation), 2.0)
         
         # 获取8个方向的障碍物距离
         obstacle_distances = [float('inf')] * 8
@@ -69,7 +70,7 @@ class RLPathPlanner:
                 obstacle_distances[i] = min(dist, 5.0)  # 限制最大距离为5米
         
         # 构建状态向量
-        state = [distance, angle] + obstacle_distances
+        state = [velocity, heading, deviation] + obstacle_distances
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
     
     def select_action(self, state: torch.Tensor) -> int:
@@ -122,27 +123,22 @@ class RLPathPlanner:
         # 衰减探索率
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
     
-    def get_action_commands(self, action: int) -> Tuple[float, float]:
+    def get_action_commands(self, action: int, current_vel: float) -> Tuple[float, float]:
         """将动作转换为速度命令"""
-        if action == 0:  # 前进
-            return (1.0, 1.0)
-        elif action == 1:  # 左转
-            return (-0.5, 0.5)
-        else:  # 右转
-            return (0.5, -0.5)
+        base_vel = current_vel
+        if action == 0:  # 加速
+            return (base_vel + 0.2, base_vel + 0.2)
+        elif action == 1:  # 减速
+            return (base_vel - 0.2, base_vel - 0.2)
+        elif action == 2:  # 左转
+            return (base_vel * 0.5, base_vel)
+        elif action == 3:  # 右转
+            return (base_vel, base_vel * 0.5)
+        else:  # 保持
+            return (base_vel, base_vel)
     
-    def calculate_reward(self, current_pos: Tuple[float, float], target_pos: Tuple[float, float], 
-                        sensor_data: Dict) -> Tuple[float, bool]:
+    def calculate_reward(self, path_deviation: float, current_vel: float, sensor_data: Dict) -> Tuple[float, bool]:
         """计算奖励和是否完成"""
-        # 计算到目标的距离
-        dx = target_pos[0] - current_pos[0]
-        dy = target_pos[1] - current_pos[1]
-        distance = math.sqrt(dx*dx + dy*dy)
-        
-        # 检查是否到达目标
-        if distance < 0.1:  # 到达目标
-            return 100.0, True
-        
         # 检查是否碰撞
         min_distance = float('inf')
         if 'ultrasonic' in sensor_data and sensor_data['ultrasonic']:
@@ -150,13 +146,23 @@ class RLPathPlanner:
         if min_distance < 0.2:  # 碰撞
             return -100.0, True
         
-        # 距离奖励（越接近目标奖励越高）
-        distance_reward = -distance
+        # 路径偏差惩罚（偏离预定路径越远惩罚越大）
+        deviation_penalty = -abs(path_deviation)
         
         # 安全奖励（与障碍物保持安全距离）
-        safety_reward = min(0, min_distance - 0.5)
+        safety_reward = 0.0
+        if min_distance < 1.0:  # 小于1米时给予奖励
+            safety_reward = (min_distance - 0.2) / 0.8  # 归一化到[0,1]
         
-        return distance_reward + safety_reward, False
+        # 速度奖励（保持合理速度）
+        velocity_reward = 0.0
+        if 0.5 <= current_vel <= 1.5:  # 速度在合理范围内
+            velocity_reward = 1.0
+        
+        # 综合奖励
+        total_reward = deviation_penalty + 2.0 * safety_reward + velocity_reward
+        
+        return total_reward, False
     
     def save_model(self, path: str):
         """保存模型"""
