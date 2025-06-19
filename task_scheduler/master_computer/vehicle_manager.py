@@ -142,10 +142,34 @@ class Vehicle:
     
     async def assign_task(self, task: Dict, path: List[Dict]) -> bool:
         """分配任务给车辆"""
+        # 根据车辆类型构造路径消息
+        waypoints = []
+        for point in path:
+            waypoint = {
+                'lat': point['lat'],
+                'lon': point['lon']
+            }
+            # 如果是无人机，添加高度信息
+            if self.type == VehicleType.DRONE:
+                waypoint['alt'] = point.get('alt', 30.0)  # 默认飞行高度30米
+            waypoints.append(waypoint)
+        
         command = {
-            'type': 'assign_task',
-            'task': task.to_dict(),
-            'path': path
+            'type': 'task',
+            'task_id': task['id'],
+            'task_type': task['type'],
+            'waypoints': waypoints,
+            'params': {
+                'max_speed': 40.0 if self.type == VehicleType.CAR else 10.0,  # 车辆最大速度40km/h，无人机10m/s
+                'min_speed': 5.0 if self.type == VehicleType.CAR else 2.0,  # 最小速度
+                'acceleration': 2.0,  # 加速度
+                'deceleration': 3.0,  # 减速度
+                'path_tracking': {
+                    'look_ahead_distance': 20.0 if self.type == VehicleType.CAR else 10.0,  # 前瞻距离
+                    'max_cross_track_error': 10.0 if self.type == VehicleType.CAR else 5.0,  # 最大横向误差
+                    'waypoint_radius': 5.0 if self.type == VehicleType.CAR else 2.0  # 航点到达判定半径
+                }
+            }
         }
         return await self.send_command(command)
     

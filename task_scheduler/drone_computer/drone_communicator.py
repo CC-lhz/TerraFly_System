@@ -181,32 +181,55 @@ class DroneCommunicator:
                 break
     
     async def process_messages(self):
-        """处理消息"""
+        """处理消息队列"""
         while True:
             try:
                 message = await self.receive_queue.get()
                 message_type = message.get('type')
                 
-                if message_type == MessageType.COMMAND.value:
-                    if self.command_callback:
-                        await self.command_callback(message)
-                    await self.send_drone_command(message)
-                
-                elif message_type == MessageType.TASK.value:
-                    if self.task_callback:
-                        await self.task_callback(message)
-                
-                elif message_type == MessageType.STATUS.value:
-                    if self.status_callback:
-                        await self.status_callback(message)
-                
-                elif message_type == MessageType.HEARTBEAT.value:
+                if message_type == MessageType.HEARTBEAT.value:
                     self.last_heartbeat = datetime.now()
+                elif message_type in self.message_handlers:
+                    await self.message_handlers[message_type](message)
                 
+                self.receive_queue.task_done()
             except Exception as e:
                 self.logger.error(f'处理消息失败: {str(e)}')
             
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
+    
+    async def handle_task_message(self, message: Dict):
+        """处理任务消息"""
+        try:
+            if 'waypoints' in message:
+                # 解析路径航点
+                waypoints = message['waypoints']
+                if self.task_callback:
+                    await self.task_callback({
+                        'type': 'set_path',
+                        'waypoints': waypoints
+                    })
+                self.logger.info(f'收到新路径，共{len(waypoints)}个航点')
+        except Exception as e:
+            self.logger.error(f'处理任务消息失败: {str(e)}')
+    
+    async def handle_command_message(self, message: Dict):
+        """处理命令消息"""
+        try:
+            if self.command_callback:
+                await self.command_callback(message)
+            self.logger.info(f'收到命令消息: {message}')
+        except Exception as e:
+            self.logger.error(f'处理命令消息失败: {str(e)}')
+    
+    async def handle_status_message(self, message: Dict):
+        """处理状态消息"""
+        try:
+            if self.status_callback:
+                await self.status_callback(message)
+            self.logger.info(f'收到状态消息: {message}')
+        except Exception as e:
+            self.logger.error(f'处理状态消息失败: {str(e)}')
     
     async def send_heartbeat(self):
         """发送心跳消息"""

@@ -125,11 +125,26 @@ class MasterScheduler:
                 await asyncio.sleep(5)
     
     def select_best_vehicle(self, task, available_vehicles):
-        """选择最优车辆执行任务"""
+        """选择最优车辆执行任务
+        考虑因素：
+        1. 车辆类型是否匹配当前任务阶段
+        2. 车辆位置与任务起点的距离
+        3. 车辆电量
+        4. 负载能力
+        5. 历史任务完成情况
+        """
         best_vehicle = None
         min_cost = float('inf')
         
         for vehicle in available_vehicles:
+            # 检查车辆类型是否匹配任务阶段
+            if task.status == TaskStatus.PENDING and vehicle.type != 'car':
+                continue  # 第一段必须使用无人车
+            if task.status == TaskStatus.PICKUP and vehicle.type != 'drone':
+                continue  # 第二段必须使用无人机
+            if task.status == TaskStatus.DELIVERING and vehicle.type != 'car':
+                continue  # 第三段必须使用无人车
+            
             # 计算任务执行成本
             cost = self.calculate_task_cost(task, vehicle)
             
@@ -140,42 +155,65 @@ class MasterScheduler:
         return best_vehicle
     
     def calculate_task_cost(self, task, vehicle):
-        """计算任务执行成本"""
+        """计算任务执行成本
+        考虑不同类型车辆的特性和任务阶段
+        """
         cost = 0
         
+        # 获取当前阶段的路线
+        routes = self.delivery_manager.plan_delivery_route(task, self.map_manager)
+        if not routes:
+            return float('inf')
+        
+        if vehicle.type == 'car':
+            if task.status == TaskStatus.PENDING:
+                path = routes['first_mile']
+            else:
+                path = routes['last_mile']
+        else:  # drone
+            path = routes['air_route']
+        
         # 距离成本
-        distance = self.map_manager.calculate_path_distance(
-            vehicle.location,
-            task.pickup_point,
-            task.delivery_point
-        )
+        distance = self.map_manager.calculate_path_length(path)
         cost += distance * vehicle.distance_cost_factor
         
         # 时间成本
-        estimated_time = distance / vehicle.average_speed
+        if vehicle.type == 'car':
+            estimated_time = distance / 40.0  # 无人车平均速度40km/h
+        else:
+            estimated_time = distance / 10.0  # 无人机平均速度10m/s
+            # 考虑起降时间
+            estimated_time += 60  # 预估起降各需要30秒
+        
         if task.deadline:
             time_to_deadline = (task.deadline - datetime.now()).total_seconds()
             if estimated_time > time_to_deadline:
-                cost += float('inf')  # 无法在截止时间前完成
+                return float('inf')  # 无法在截止时间前完成
             else:
                 cost += estimated_time * vehicle.time_cost_factor
         
         # 电量成本
-        energy_consumption = self.estimate_energy_consumption(
-            vehicle,
-            distance,
-            task.weight
-        )
+        if vehicle.type == 'car':
+            energy_consumption = distance * 0.1  # 每公里消耗10%电量
+        else:
+            energy_consumption = distance * 0.2  # 每公里消耗20%电量
+            energy_consumption += 10  # 起降额外消耗10%电量
+        
         if energy_consumption > vehicle.battery_level:
-            cost += float('inf')  # 电量不足
+            return float('inf')  # 电量不足
         else:
             cost += energy_consumption * vehicle.energy_cost_factor
         
         # 负载成本
         if task.weight > vehicle.max_payload:
-            cost += float('inf')  # 超出最大负载
+            return float('inf')  # 超出最大负载
         else:
             cost += (task.weight / vehicle.max_payload) * vehicle.payload_cost_factor
+        
+        # 历史任务成本
+        completed_tasks = len([t for t in self.task_manager.get_completed_tasks()
+                              if t.assigned_vehicle == vehicle.id])
+        cost -= completed_tasks * 0.1  # 每完成一个任务减少0.1的成本，鼓励使用可靠的车辆
         
         return cost
     
@@ -188,8 +226,28 @@ class MasterScheduler:
     async def assign_task(self, task, vehicle):
         """分配任务给车辆"""
         try:
+            # 规划配送路线
+            routes = self.delivery_manager.plan_delivery_route(task, self.map_manager)
+            if not routes:
+                self.logger.error(f'任务 {task.id} 路线规划失败')
+                return False
+            
+            # 根据车辆类型分配不同的路线
+            if vehicle.type == 'car':
+                if task.status == TaskStatus.PENDING:
+                    # 第一段：取货点 -> 起降点
+                    path = routes['first_mile']
+                    task.status = TaskStatus.PICKUP
+                else:
+                    # 第三段：起降点 -> 配送点
+                    path = routes['last_mile']
+                    task.status = TaskStatus.DELIVERING
+            else:  # drone
+                # 第二段：起降点 -> 起降点（空中配送）
+                path = routes['air_route']
+                task.status = TaskStatus.DELIVERING
+            
             # 更新任务状态
-            task.status = 'assigned'
             task.assigned_vehicle = vehicle.id
             task.assigned_time = datetime.now()
             

@@ -102,11 +102,29 @@ class DeliveryManager:
     """配送点管理器"""
     def __init__(self):
         self.delivery_points: Dict[str, DeliveryPoint] = {}
+        self.drone_stations: Dict[str, DeliveryPoint] = {}  # 无人机起降点
         self.logger = logging.getLogger('DeliveryManager')
     
     async def initialize(self):
         """初始化配送点管理器"""
         self.logger.info('配送点管理器初始化')
+        
+    def register_drone_station(self, location: Dict, capacity: int = 5) -> DeliveryPoint:
+        """注册无人机起降点
+        Args:
+            location: 位置信息 {'lat': float, 'lon': float, 'alt': float}
+            capacity: 最大停机数量
+        """
+        station_id = f'STATION_{len(self.drone_stations) + 1}'
+        station = DeliveryPoint(
+            point_id=station_id,
+            location=location,
+            capacity=capacity,
+            capabilities=['drone_landing']
+        )
+        self.drone_stations[station_id] = station
+        self.logger.info(f'注册无人机起降点: {station_id}')
+        return station
     
     def register_delivery_point(
         self,
@@ -190,7 +208,53 @@ class DeliveryManager:
         if delivery_point:
             delivery_point.complete_task(task.id)
         
+        # 更新无人机起降点状态
+        if task.drone_station and task.drone_station['id'] in self.drone_stations:
+            station = self.drone_stations[task.drone_station['id']]
+            station.complete_task(task.id)
+        
         return True
+    
+    def plan_delivery_route(self, task, map_manager) -> Dict:
+        """规划配送路线
+        返回三段式配送路线：
+        1. 无人车取货路线（取货点 -> 起降点）
+        2. 无人机配送路线（起降点 -> 目标区域起降点）
+        3. 无人车配送路线（起降点 -> 配送点）
+        """
+        # 找到最近的起降点（取货点附近）
+        pickup_station = min(
+            self.drone_stations.values(),
+            key=lambda x: map_manager.calculate_distance(x.location, task.pickup_point['location'])
+        )
+        
+        # 找到最近的起降点（配送点附近）
+        delivery_station = min(
+            self.drone_stations.values(),
+            key=lambda x: map_manager.calculate_distance(x.location, task.delivery_point['location'])
+        )
+        
+        # 规划路线
+        routes = {
+            'first_mile': map_manager.plan_car_path(
+                start=task.pickup_point['location'],
+                end=pickup_station.location
+            ),
+            'air_route': map_manager.plan_air_path(
+                start=pickup_station.location,
+                end=delivery_station.location
+            ),
+            'last_mile': map_manager.plan_car_path(
+                start=delivery_station.location,
+                end=task.delivery_point['location']
+            ),
+            'stations': {
+                'pickup': pickup_station.id,
+                'delivery': delivery_station.id
+            }
+        }
+        
+        return routes
     
     def serialize(self) -> Dict:
         """序列化配送点数据"""

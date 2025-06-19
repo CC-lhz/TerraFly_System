@@ -39,6 +39,17 @@ class DroneController:
         self.speed = {'vx': 0.0, 'vy': 0.0, 'vz': 0.0}
         self.attitude = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
         
+        # 路径跟踪相关
+        self.current_waypoint_index = 0
+        self.path_completed = False
+        self.path_params = {
+            'waypoint_radius': 2.0,  # 到达航点的判定半径（米）
+            'look_ahead_distance': 10.0,  # 前瞻距离（米）
+            'max_cross_track_error': 5.0,  # 最大横向误差（米）
+            'max_climb_angle': 30.0,  # 最大爬升角度（度）
+            'max_descent_angle': 20.0  # 最大下降角度（度）
+        }
+        
         # 传感器数据
         self.sensors = {
             'gps': {'fix': False, 'satellites': 0},
@@ -79,6 +90,9 @@ class DroneController:
         await self.connect()
         await self.calibrate_sensors()
         await self.set_home_position()
+        
+        # 启动路径跟踪循环
+        asyncio.create_task(self.path_tracking_loop())
     
     async def connect(self):
         """连接无人机"""
@@ -98,6 +112,101 @@ class DroneController:
             self.logger.info('无人机已断开连接')
         except Exception as e:
             self.logger.error(f'断开连接失败: {str(e)}')
+    
+    def set_path(self, waypoints: List[Dict[str, float]]):
+        """设置路径航点"""
+        self.waypoints = waypoints
+        self.current_waypoint_index = 0
+        self.path_completed = False
+        self.logger.info(f'设置新路径，共{len(waypoints)}个航点')
+    
+    async def path_tracking_loop(self):
+        """路径跟踪循环"""
+        while True:
+            if self.status == DroneStatus.FLYING and self.flight_mode == FlightMode.AUTO:
+                await self.update_path_tracking()
+            await asyncio.sleep(0.1)
+    
+    async def update_path_tracking(self):
+        """更新路径跟踪"""
+        if not self.waypoints or self.path_completed:
+            return
+        
+        current_waypoint = self.waypoints[self.current_waypoint_index]
+        distance = self.calculate_distance(self.location, current_waypoint)
+        
+        # 判断是否到达当前航点
+        if distance <= self.path_params['waypoint_radius']:
+            self.current_waypoint_index += 1
+            if self.current_waypoint_index >= len(self.waypoints):
+                self.path_completed = True
+                self.status = DroneStatus.IDLE
+                self.logger.info('路径跟踪完成')
+                return
+            current_waypoint = self.waypoints[self.current_waypoint_index]
+        
+        # 计算目标姿态和速度
+        target_bearing = self.calculate_bearing(self.location, current_waypoint)
+        target_altitude = current_waypoint['alt']
+        altitude_error = target_altitude - self.location['alt']
+        
+        # 计算爬升/下降角度
+        climb_angle = min(
+            max(
+                degrees(atan2(altitude_error, distance)),
+                -self.path_params['max_descent_angle']
+            ),
+            self.path_params['max_climb_angle']
+        )
+        
+        # 设置姿态和速度
+        await self.set_attitude(target_bearing, climb_angle)
+        await self.set_velocity(distance, climb_angle)
+    
+    def calculate_distance(self, point1: Dict[str, float], point2: Dict[str, float]) -> float:
+        """计算两点之间的距离（米）"""
+        # 使用Haversine公式计算水平距离
+        from math import radians, sin, cos, sqrt, atan2
+        
+        lat1, lon1 = radians(point1['lat']), radians(point1['lon'])
+        lat2, lon2 = radians(point2['lat']), radians(point2['lon'])
+        
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        horizontal_distance = 6371000 * c  # 地球半径（米）* 弧度
+        
+        # 计算垂直距离
+        vertical_distance = point2['alt'] - point1['alt']
+        
+        # 计算三维距离
+        return sqrt(horizontal_distance**2 + vertical_distance**2)
+    
+    def calculate_bearing(self, point1: Dict[str, float], point2: Dict[str, float]) -> float:
+        """计算两点之间的方位角（度）"""
+        # 计算真北方向的方位角
+        from math import radians, sin, cos, atan2, degrees
+        
+        lat1, lon1 = radians(point1['lat']), radians(point1['lon'])
+        lat2, lon2 = radians(point2['lat']), radians(point2['lon'])
+        
+        dlon = lon2 - lon1
+        y = sin(dlon) * cos(lat2)
+        x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon)
+        bearing = degrees(atan2(y, x))
+        return (bearing + 360) % 360
+    
+    async def set_attitude(self, heading: float, climb_angle: float):
+        """设置姿态"""
+        # 实现姿态控制逻辑
+        pass
+    
+    async def set_velocity(self, distance: float, climb_angle: float):
+        """设置速度"""
+        # 实现速度控制逻辑
+        pass
     
     async def calibrate_sensors(self):
         """校准传感器"""

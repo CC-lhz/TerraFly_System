@@ -7,10 +7,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 
-from .vehicle_manager import VehicleManagerWidget
+from .device_manager import DeviceManagerWidget
 from .task_manager import TaskManagerWidget
 from .path_planner import PathPlannerWidget
 from .system_monitor import SystemMonitorWidget
+from .map_view import MapView
 from ..unified_scheduler import UnifiedScheduler
 from ..baidu_map_planner import BaiduMapPlanner
 from ..flight_scheduler import FlightScheduler
@@ -38,12 +39,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tab_widget)
         
         # 添加各功能模块的选项卡
-        self.vehicle_manager = VehicleManagerWidget(self)
+        self.vehicle_manager = DeviceManagerWidget(self)
         self.task_manager = TaskManagerWidget(self)
         self.path_planner = PathPlannerWidget(self)
         self.system_monitor = SystemMonitorWidget(self)
+        self.map_view = MapView(self)
         
-        self.tab_widget.addTab(self.vehicle_manager, '车辆管理')
+        self.tab_widget.addTab(self.map_view, '地图视图')
+        self.tab_widget.addTab(self.vehicle_manager, '设备管理')
         self.tab_widget.addTab(self.task_manager, '任务管理')
         self.tab_widget.addTab(self.path_planner, '路径规划')
         self.tab_widget.addTab(self.system_monitor, '系统监控')
@@ -146,6 +149,7 @@ class MainWindow(QMainWindow):
         self.task_manager.refresh()
         self.path_planner.refresh()
         self.system_monitor.refresh()
+        self.map_view.refresh()
         self.statusBar.showMessage('已刷新所有视图')
     
     def update_status(self):
@@ -155,7 +159,7 @@ class MainWindow(QMainWindow):
             active_tasks = sum(1 for task in status['tasks'] if task['status'] != 'completed')
             active_vehicles = sum(1 for vehicle in status['vehicles'] if vehicle['status'] != 'idle')
             self.statusBar.showMessage(
-                f'活动任务: {active_tasks} | 活动车辆: {active_vehicles} | '
+                f'活动任务: {active_tasks} | 活动设备: {active_vehicles} | '
                 f'系统状态: {status.get("system_status", "正常")}'
             )
     
@@ -166,7 +170,7 @@ class MainWindow(QMainWindow):
             '关于TerraFly调度管理系统',
             '这是一个用于管理和调度无人机和无人车的系统。\n\n'
             '功能包括：\n'
-            '- 车辆管理\n'
+            '- 设备管理\n'
             '- 任务调度\n'
             '- 路径规划\n'
             '- 系统监控'

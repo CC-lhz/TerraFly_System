@@ -38,6 +38,16 @@ class CarController:
         self.speed = 0.0
         self.heading = 0.0
         
+        # 路径跟踪相关
+        self.current_waypoint_index = 0
+        self.path_completed = False
+        self.path_params = {
+            'waypoint_radius': 5.0,  # 到达航点的判定半径（米）
+            'look_ahead_distance': 20.0,  # 前瞻距离（米）
+            'max_cross_track_error': 10.0,  # 最大横向误差（米）
+            'min_turn_radius': 5.0  # 最小转弯半径（米）
+        }
+        
         # 传感器数据
         self.sensors = {
             'gps': {'fix': False, 'satellites': 0},
@@ -78,6 +88,9 @@ class CarController:
         await self.connect()
         await self.calibrate_sensors()
         await self.set_home_position()
+        
+        # 启动路径跟踪循环
+        asyncio.create_task(self.path_tracking_loop())
     
     async def connect(self):
         """连接无人车"""
@@ -97,6 +110,89 @@ class CarController:
             self.logger.info('无人车已断开连接')
         except Exception as e:
             self.logger.error(f'断开连接失败: {str(e)}')
+    
+    def set_path(self, waypoints: List[Dict[str, float]]):
+        """设置路径航点"""
+        self.waypoints = waypoints
+        self.current_waypoint_index = 0
+        self.path_completed = False
+        self.logger.info(f'设置新路径，共{len(waypoints)}个航点')
+    
+    async def path_tracking_loop(self):
+        """路径跟踪循环"""
+        while True:
+            if self.status == CarStatus.MOVING and self.drive_mode == DriveMode.AUTO:
+                await self.update_path_tracking()
+            await asyncio.sleep(0.1)
+    
+    async def update_path_tracking(self):
+        """更新路径跟踪"""
+        if not self.waypoints or self.path_completed:
+            return
+        
+        current_waypoint = self.waypoints[self.current_waypoint_index]
+        distance = self.calculate_distance(self.location, current_waypoint)
+        
+        # 判断是否到达当前航点
+        if distance <= self.path_params['waypoint_radius']:
+            self.current_waypoint_index += 1
+            if self.current_waypoint_index >= len(self.waypoints):
+                self.path_completed = True
+                self.status = CarStatus.IDLE
+                self.logger.info('路径跟踪完成')
+                return
+            current_waypoint = self.waypoints[self.current_waypoint_index]
+        
+        # 计算目标航向
+        target_bearing = self.calculate_bearing(self.location, current_waypoint)
+        heading_error = target_bearing - self.heading
+        
+        # 根据航向误差和距离计算转向角度和速度
+        steering_angle = self.calculate_steering_angle(heading_error)
+        target_speed = self.calculate_target_speed(distance, abs(steering_angle))
+        
+        # 发送控制命令
+        await self.set_steering(steering_angle)
+        await self.set_speed(target_speed)
+    
+    def calculate_distance(self, point1: Dict[str, float], point2: Dict[str, float]) -> float:
+        """计算两点之间的距离（米）"""
+        # 使用Haversine公式计算距离
+        from math import radians, sin, cos, sqrt, atan2
+        
+        lat1, lon1 = radians(point1['lat']), radians(point1['lon'])
+        lat2, lon2 = radians(point2['lat']), radians(point2['lon'])
+        
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return 6371000 * c  # 地球半径（米）* 弧度
+    
+    def calculate_bearing(self, point1: Dict[str, float], point2: Dict[str, float]) -> float:
+        """计算两点之间的方位角（度）"""
+        # 计算真北方向的方位角
+        from math import radians, sin, cos, atan2, degrees
+        
+        lat1, lon1 = radians(point1['lat']), radians(point1['lon'])
+        lat2, lon2 = radians(point2['lat']), radians(point2['lon'])
+        
+        dlon = lon2 - lon1
+        y = sin(dlon) * cos(lat2)
+        x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon)
+        bearing = degrees(atan2(y, x))
+        return (bearing + 360) % 360
+    
+    async def set_steering(self, angle: float):
+        """设置转向角度"""
+        # 实现转向控制逻辑
+        pass
+    
+    async def set_speed(self, speed: float):
+        """设置速度"""
+        # 实现速度控制逻辑
+        pass
     
     async def calibrate_sensors(self):
         """校准传感器"""
