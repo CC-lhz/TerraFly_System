@@ -11,15 +11,17 @@ from matplotlib.figure import Figure
 @dataclass
 class StaticObstacle:
     """静态障碍物"""
-    position: Tuple[float, float]  # 位置坐标(x, y)
+    position: Tuple[float, float, float]  # 位置坐标(x, y, z)
     radius: float  # 障碍物半径
+    height: float  # 障碍物高度
     type: str  # 障碍物类型（建筑物、设施等）
 
 @dataclass
 class DynamicZone:
     """动态区域"""
-    center: Tuple[float, float]  # 区域中心坐标
+    center: Tuple[float, float, float]  # 区域中心坐标(x, y, z)
     radius: float  # 区域半径
+    height: float  # 区域高度
     type: str  # 区域类型（人流密集区、装卸货区等）
     time_windows: List[Tuple[str, str]]  # 活跃时间窗口列表 [(开始时间, 结束时间)]
 
@@ -28,30 +30,31 @@ class EnvironmentManager:
     def __init__(self):
         self.static_obstacles: List[StaticObstacle] = []
         self.dynamic_zones: List[DynamicZone] = []
-        self.boundary: List[Tuple[float, float]] = []  # 园区边界点
-        self.paths: List[List[Tuple[float, float]]] = []  # 预定义路径
-        self.charging_stations: List[Tuple[float, float]] = []  # 充电站位置
+        self.boundary: List[Tuple[float, float, float]] = []  # 园区边界点(包含高度)
+        self.paths: List[List[Tuple[float, float, float]]] = []  # 预定义路径(包含高度)
+        self.charging_stations: List[Tuple[float, float, float]] = []  # 充电站位置(包含高度)
+        self.ground_height: float = 0.0  # 地面基准高度
         
-    def add_static_obstacle(self, position: Tuple[float, float], radius: float, type: str):
+    def add_static_obstacle(self, position: Tuple[float, float, float], radius: float, height: float, type: str):
         """添加静态障碍物"""
-        obstacle = StaticObstacle(position=position, radius=radius, type=type)
+        obstacle = StaticObstacle(position=position, radius=radius, height=height, type=type)
         self.static_obstacles.append(obstacle)
         
-    def add_dynamic_zone(self, center: Tuple[float, float], radius: float, 
-                         type: str, time_windows: List[Tuple[str, str]]):
+    def add_dynamic_zone(self, center: Tuple[float, float, float], radius: float, 
+                         height: float, type: str, time_windows: List[Tuple[str, str]]):
         """添加动态区域"""
-        zone = DynamicZone(center=center, radius=radius, type=type, time_windows=time_windows)
+        zone = DynamicZone(center=center, radius=radius, height=height, type=type, time_windows=time_windows)
         self.dynamic_zones.append(zone)
         
-    def set_boundary(self, points: List[Tuple[float, float]]):
+    def set_boundary(self, points: List[Tuple[float, float, float]]):
         """设置园区边界"""
         self.boundary = points
         
-    def add_path(self, path: List[Tuple[float, float]]):
+    def add_path(self, path: List[Tuple[float, float, float]]):
         """添加预定义路径"""
         self.paths.append(path)
         
-    def add_charging_station(self, position: Tuple[float, float]):
+    def add_charging_station(self, position: Tuple[float, float, float]):
         """添加充电站"""
         self.charging_stations.append(position)
         
@@ -59,21 +62,28 @@ class EnvironmentManager:
         """保存环境配置到文件"""
         env_data = {
             'static_obstacles': [
-                {'position': list(obs.position), 'radius': obs.radius, 'type': obs.type}
+                {
+                    'position': list(obs.position),
+                    'radius': obs.radius,
+                    'height': obs.height,
+                    'type': obs.type
+                }
                 for obs in self.static_obstacles
             ],
             'dynamic_zones': [
                 {
                     'center': list(zone.center),
                     'radius': zone.radius,
+                    'height': zone.height,
                     'type': zone.type,
                     'time_windows': zone.time_windows
                 }
                 for zone in self.dynamic_zones
             ],
-            'boundary': self.boundary,
-            'paths': self.paths,
-            'charging_stations': self.charging_stations
+            'boundary': [list(point) for point in self.boundary],
+            'paths': [[list(point) for point in path] for path in self.paths],
+            'charging_stations': [list(station) for station in self.charging_stations],
+            'ground_height': self.ground_height
         }
         
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -89,6 +99,7 @@ class EnvironmentManager:
             StaticObstacle(
                 position=tuple(obs['position']),
                 radius=obs['radius'],
+                height=obs['height'],
                 type=obs['type']
             )
             for obs in env_data['static_obstacles']
@@ -99,15 +110,17 @@ class EnvironmentManager:
             DynamicZone(
                 center=tuple(zone['center']),
                 radius=zone['radius'],
+                height=zone['height'],
                 type=zone['type'],
                 time_windows=zone['time_windows']
             )
             for zone in env_data['dynamic_zones']
         ]
         
-        self.boundary = env_data['boundary']
-        self.paths = env_data['paths']
-        self.charging_stations = env_data['charging_stations']
+        self.boundary = [tuple(point) for point in env_data['boundary']]
+        self.paths = [[tuple(point) for point in path] for path in env_data['paths']]
+        self.charging_stations = [tuple(station) for station in env_data['charging_stations']]
+        self.ground_height = env_data.get('ground_height', 0.0)
         
     def visualize_environment(self):
         """可视化环境配置"""
@@ -122,8 +135,9 @@ class EnvironmentManager:
         toolbar = ttk.Frame(main_frame)
         toolbar.pack(side=tk.LEFT, fill=tk.Y)
         
-        # 创建绘图区域
+        # 创建图形
         fig = Figure(figsize=(8, 6))
+        self.ax = fig.add_subplot(111, projection='3d')
         canvas = FigureCanvasTkAgg(fig, master=main_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -200,91 +214,128 @@ class EnvironmentManager:
         self.ax.set_aspect('equal')
         self.canvas.draw()
     
-    def on_mouse_press(self, event):
-        """鼠标按下事件处理"""
+    def get_3d_point(self, event):
+        """将2D鼠标点击转换为3D坐标"""
         if event.inaxes != self.ax:
-            return
+            return None
         
-        tool = self.current_tool.get()
-        if tool == '边界' or tool == '路径':
-            self.drawing = True
-            self.current_path = [(event.xdata, event.ydata)]
-        elif tool == '障碍物':
-            self.add_static_obstacle((event.xdata, event.ydata), 5, '建筑物')
-            self.update_plot()
-        elif tool == '动态区域':
-            self.add_dynamic_zone(
-                (event.xdata, event.ydata), 10, '人流密集区',
-                [('08:00', '10:00'), ('12:00', '14:00')]
-            )
-            self.update_plot()
-        elif tool == '充电站':
-            self.add_charging_station((event.xdata, event.ydata))
-            self.update_plot()
+        # 获取当前高度
+        height = self.current_height.get()
+        return (event.xdata, event.ydata, height)
     
-    def on_mouse_move(self, event):
-        """鼠标移动事件处理"""
-        if not self.drawing or event.inaxes != self.ax:
+    def on_mouse_press(self, event):
+        point = self.get_3d_point(event)
+        if not point:
             return
         
         tool = self.current_tool.get()
-        if tool in ['边界', '路径']:
-            self.current_path.append((event.xdata, event.ydata))
-            self.ax.clear()
+        if not tool:
+            return
+        
+        if tool == '边界':
+            self.drawing = True
+            self.current_path = [point]
+            self.last_point = point
+        elif tool == '路径':
+            self.drawing = True
+            self.current_path = [point]
+            self.last_point = point
+        elif tool == '障碍物':
+            self.add_static_obstacle(point, radius=1.0, height=2.0, type='建筑物')
             self.update_plot()
-            path_array = np.array(self.current_path)
-            self.ax.plot(path_array[:, 0], path_array[:, 1], 'r--')
+            self.canvas.draw()
+        elif tool == '动态区域':
+            self.add_dynamic_zone(point, radius=2.0, height=3.0,
+                                 type='活动区域', time_windows=[('08:00', '18:00')])
+            self.update_plot()
+            self.canvas.draw()
+        elif tool == '充电站':
+            self.add_charging_station(point)
+            self.update_plot()
             self.canvas.draw()
     
     def on_mouse_release(self, event):
-        """鼠标释放事件处理"""
         if not self.drawing:
+            return
+        
+        point = self.get_3d_point(event)
+        if not point:
             return
         
         tool = self.current_tool.get()
         if tool == '边界':
-            self.set_boundary(self.current_path)
+            if len(self.current_path) > 2:  # 至少需要3个点形成有效边界
+                self.set_boundary(self.current_path)
         elif tool == '路径':
-            self.add_path(self.current_path)
+            if len(self.current_path) > 1:  # 至少需要2个点形成有效路径
+                self.add_path(self.current_path)
         
         self.drawing = False
         self.current_path = []
+        self.last_point = None
         self.update_plot()
+        self.canvas.draw()
+    
+    def on_mouse_move(self, event):
+        point = self.get_3d_point(event)
+        if not self.drawing or not point:
+            return
+        
+        # 计算与上一个点的距离
+        if self.last_point:
+            dx = point[0] - self.last_point[0]
+            dy = point[1] - self.last_point[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # 如果距离太小，不添加新点
+            if distance < 0.5:
+                return
+        
+        self.current_path.append(point)
+        self.last_point = point
+        self.update_plot()
+        
+        # 绘制当前路径
+        if self.current_path:
+            path = np.array(self.current_path)
+            self.ax.plot3D(path[:, 0], path[:, 1], path[:, 2], 'r--')
+        
+        self.canvas.draw()
 
 def create_example_environment():
-    """创建示例环境"""
+    """创建示例环境配置"""
     env = EnvironmentManager()
     
-    # 设置园区边界
+    # 设置园区边界（包含高度信息）
     boundary = [
-        (0, 0), (0, 100), (150, 100), (150, 0)
+        (0, 0, 0), (0, 100, 0), (150, 100, 0), (150, 0, 0)
     ]
     env.set_boundary(boundary)
     
-    # 添加静态障碍物
-    env.add_static_obstacle((30, 40), 5, '建筑物')
-    env.add_static_obstacle((80, 60), 8, '设施')
-    env.add_static_obstacle((120, 30), 6, '设施')
+    # 添加静态障碍物（建筑物和设施，包含高度）
+    env.add_static_obstacle((30, 40, 0), 5, 15, '建筑物')  # 15米高的建筑物
+    env.add_static_obstacle((80, 60, 0), 8, 12, '设施')   # 12米高的设施
+    env.add_static_obstacle((120, 30, 0), 6, 10, '设施')  # 10米高的设施
     
-    # 添加动态区域
+    # 添加动态区域（包含高度限制）
     env.add_dynamic_zone(
-        (50, 50), 10, '人流密集区',
+        (50, 50, 0), 10, 5, '人流密集区',  # 5米高的活动区域
         [('08:00', '10:00'), ('12:00', '14:00'), ('17:00', '19:00')]
     )
     env.add_dynamic_zone(
-        (100, 70), 15, '装卸货区',
+        (100, 70, 0), 15, 8, '装卸货区',  # 8米高的活动区域
         [('09:00', '11:00'), ('14:00', '16:00')]
     )
     
-    # 添加预定义路径
-    path1 = [(0, 20), (40, 20), (40, 80), (140, 80)]
-    path2 = [(0, 80), (60, 80), (60, 20), (140, 20)]
+    # 添加预定义路径（包含高度变化）
+    path1 = [(0, 20, 0), (40, 20, 0), (40, 80, 0), (140, 80, 0)]
+    path2 = [(0, 80, 0), (60, 80, 0), (60, 20, 0), (140, 20, 0)]
     env.add_path(path1)
     env.add_path(path2)
     
-    # 添加充电站
-    env.add_charging_station((10, 10))
-    env.add_charging_station((140, 90))
+    # 添加充电站（地面位置）
+    env.add_charging_station((10, 10, 0))
+    env.add_charging_station((140, 90, 0))
     
     return env
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 import numpy as np
 from datetime import datetime, timedelta
+from ground_control.environment_init import EnvironmentManager
 
 @dataclass
 class FlightPath:
@@ -14,12 +15,14 @@ class FlightPath:
     status: str = 'scheduled'  # 'scheduled', 'active', 'completed', 'aborted'
 
 class FlightScheduler:
-    def __init__(self):
+    def __init__(self, env_manager: EnvironmentManager):
         self.flight_paths: Dict[str, FlightPath] = {}
+        self.env_manager = env_manager
         self.min_separation = 0.0001  # 约10米的经纬度差
         self.vertical_separation = 10  # 垂直间隔10米
         self.altitude_levels = list(range(30, 121, 10))  # 30米到120米，每10米一层
         self.speed = 10  # 米/秒
+        self.safety_margin = 5  # 建筑物上方安全边际（米）
 
     def calculate_duration(self, waypoints: List[Tuple[float, float, float]]) -> timedelta:
         """计算飞行时间"""
@@ -83,11 +86,45 @@ class FlightScheduler:
             
         return True
 
+    def get_max_building_height(self, lat: float, lon: float) -> float:
+        """获取指定位置的最大建筑物高度"""
+        max_height = 0
+        for obstacle in self.env_manager.static_obstacles:
+            # 计算点到建筑物中心的距离
+            dx = lat - obstacle.position[0]
+            dy = lon - obstacle.position[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # 如果点在建筑物范围内，更新最大高度
+            if distance <= obstacle.radius:
+                max_height = max(max_height, obstacle.position[2] + obstacle.height)
+        return max_height
+
+    def check_building_clearance(self, waypoint: Tuple[float, float, float]) -> bool:
+        """检查航点是否在建筑物上方的安全高度"""
+        lat, lon, alt = waypoint
+        building_height = self.get_max_building_height(lat, lon)
+        return alt >= building_height + self.safety_margin
+
     def find_safe_altitude(self, waypoints: List[Tuple[float, float, float]], 
                          start_time: datetime) -> Optional[float]:
         """为航线找到安全的飞行高度"""
-        # 检查每个可用的高度层
-        for alt in self.altitude_levels:
+        # 首先找到航线经过的所有建筑物的最大高度
+        max_building_height = 0
+        for wp in waypoints:
+            building_height = self.get_max_building_height(wp[0], wp[1])
+            max_building_height = max(max_building_height, building_height)
+
+        # 确定最小安全飞行高度
+        min_safe_alt = max_building_height + self.safety_margin
+
+        # 在可用高度层中找到第一个大于最小安全高度的高度
+        safe_levels = [alt for alt in self.altitude_levels if alt >= min_safe_alt]
+        if not safe_levels:
+            return None
+
+        # 检查每个安全的高度层
+        for alt in safe_levels:
             # 创建测试航线
             test_waypoints = [(wp[0], wp[1], alt) for wp in waypoints]
             test_path = FlightPath(
@@ -110,6 +147,28 @@ class FlightScheduler:
                 return alt
         return None
 
+    def check_path_building_safety(self, waypoints: List[Tuple[float, float, float]]) -> bool:
+        """检查路径是否安全（不穿过建筑物之间）"""
+        for i in range(len(waypoints) - 1):
+            start = waypoints[i]
+            end = waypoints[i + 1]
+            
+            # 在路径上采样多个点进行检查
+            steps = 10  # 采样点数量
+            for step in range(steps + 1):
+                t = step / steps
+                # 线性插值计算采样点
+                point = (
+                    start[0] + (end[0] - start[0]) * t,
+                    start[1] + (end[1] - start[1]) * t,
+                    start[2] + (end[2] - start[2]) * t
+                )
+                
+                # 检查该点是否满足建筑物高度要求
+                if not self.check_building_clearance(point):
+                    return False
+        return True
+
     def schedule_flight(self, drone_id: str, waypoints: List[Tuple[float, float]], 
                        start_time: datetime, priority: int) -> bool:
         """调度新的飞行任务"""
@@ -120,6 +179,10 @@ class FlightScheduler:
 
         # 创建带高度的航点
         waypoints_3d = [(wp[0], wp[1], safe_alt) for wp in waypoints]
+        
+        # 检查路径是否安全（不穿过建筑物之间）
+        if not self.check_path_building_safety(waypoints_3d):
+            return False
         
         # 计算预计飞行时间
         duration = self.calculate_duration(waypoints_3d)
