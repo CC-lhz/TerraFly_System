@@ -5,7 +5,12 @@ config = {
     # 地图配置
     'map_center': (22.5, 113.4),  # 默认中心位置
     'zoom_start': 13,
-    'baidu_map_ak': '',  # 百度地图API密钥
+    'map_center': [39.9042, 116.4074],  # 地图中心点（北京）
+    'zoom_start': 13,  # 初始缩放级别
+    'map_update_interval': 1.0,  # 地图更新间隔（秒）
+    'path_cache_time': 300,  # 路径缓存时间（秒）
+    'min_drone_distance': 50.0,  # 无人机最小安全距离（米）
+    'max_drones_per_zone': 5,  # 每个空域最大无人机数量
     
     # 任务优先级
     'priority_levels': {

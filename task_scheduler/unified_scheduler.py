@@ -5,7 +5,7 @@ import datetime
 import json
 import threading
 from queue import PriorityQueue
-from .baidu_map_planner import BaiduMapPlanner
+from .system_map_planner import SystemMapPlanner
 from .flight_scheduler import FlightScheduler
 from .delivery_scheduler import DeliveryPoint, VehicleType, TaskStatus
 
@@ -47,11 +47,12 @@ class Task:
 class UnifiedScheduler:
     def __init__(self, config: dict):
         self.config = config
-        self.map_planner = BaiduMapPlanner(
+        self.map_planner = SystemMapPlanner(
             center=config['map_center'],
-            zoom_start=config['zoom_start'],
-            ak=config['baidu_map_ak']
+            zoom_start=config['zoom_start']
         )
+        # 初始化地图管理器
+        await self.map_planner.initialize()
         self.flight_scheduler = FlightScheduler()
         
         self.vehicles: Dict[str, Vehicle] = {}

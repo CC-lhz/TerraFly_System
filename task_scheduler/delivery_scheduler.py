@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
 from enum import Enum
 import datetime
-from .baidu_map_planner import BaiduMapPlanner
+from .system_map_planner import SystemMapPlanner
 from .flight_scheduler import FlightScheduler
 
 class VehicleType(Enum):

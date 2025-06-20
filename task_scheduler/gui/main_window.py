@@ -13,7 +13,7 @@ from .path_planner import PathPlannerWidget
 from .system_monitor import SystemMonitorWidget
 from .map_view import MapView
 from ..unified_scheduler import UnifiedScheduler
-from ..baidu_map_planner import BaiduMapPlanner
+from ..system_map_planner import SystemMapPlanner
 from ..flight_scheduler import FlightScheduler
 import config
 
@@ -106,7 +106,9 @@ class MainWindow(QMainWindow):
     def init_scheduler(self):
         """初始化调度器"""
         try:
-            map_planner = BaiduMapPlanner(config.config['baidu_map']['ak'])
+            map_planner = SystemMapPlanner(config.config['map_center'], config.config['zoom_start'])
+            # 初始化地图管理器
+            await map_planner.initialize()
             flight_scheduler = FlightScheduler()
             self.scheduler = UnifiedScheduler(map_planner, flight_scheduler)
             
