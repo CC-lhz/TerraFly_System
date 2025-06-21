@@ -1,4 +1,5 @@
 import sys
+import json
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QHBoxLayout, QTabWidget, QMenuBar, QStatusBar,
@@ -7,15 +8,16 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 
-from .device_manager import DeviceManagerWidget
-from .task_manager import TaskManagerWidget
-from .path_planner import PathPlannerWidget
-from .system_monitor import SystemMonitorWidget
-from .map_view import MapView
-from ..unified_scheduler import UnifiedScheduler
-from ..system_map_planner import SystemMapPlanner
-from ..flight_scheduler import FlightScheduler
-import config
+from task_scheduler.gui.device_manager import DeviceManagerWidget
+from task_scheduler.gui.task_manager import TaskManagerWidget
+from task_scheduler.gui.path_planner import PathPlannerWidget
+from task_scheduler.gui.system_monitor import SystemMonitorWidget
+from task_scheduler.gui.map_view import MapView
+from task_scheduler.unified_scheduler import UnifiedScheduler
+from task_scheduler.system_map_planner import SystemMapPlanner
+from task_scheduler.flight_scheduler import FlightScheduler
+from task_scheduler import config
+from car.ground_control.environment_init import EnvironmentManager
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -23,6 +25,9 @@ class MainWindow(QMainWindow):
         self.scheduler = None
         self.init_ui()
         self.init_scheduler()
+        # 加载示例地图并刷新视图
+        self.load_map('d:\\毕业设计\\TerraFly_System\\example_map.tfmap')
+        self.refresh_all()
         
     def init_ui(self):
         """初始化用户界面"""
@@ -64,6 +69,16 @@ class MainWindow(QMainWindow):
         self.update_timer.timeout.connect(self.update_status)
         self.update_timer.start(1000)  # 每秒更新一次
         
+    def load_map(self, map_file):
+        """加载地图文件"""
+        try:
+            with open(map_file, 'r', encoding='utf-8') as f:
+                map_data = f.read()
+                self.map_view.load_map_data(map_data)
+                self.statusBar.showMessage(f'成功加载地图：{map_file}')
+        except Exception as e:
+            QMessageBox.critical(self, '错误', f'加载地图文件失败：{str(e)}')
+    
     def create_menu_bar(self):
         """创建菜单栏"""
         menubar = self.menuBar()
@@ -106,10 +121,22 @@ class MainWindow(QMainWindow):
     def init_scheduler(self):
         """初始化调度器"""
         try:
+            # 读取示例地图数据
+            with open('d:\\毕业设计\\TerraFly_System\\example_map.tfmap', 'r', encoding='utf-8') as f:
+                map_data = json.loads(f.read())
+            
             map_planner = SystemMapPlanner(config.config['map_center'], config.config['zoom_start'])
             # 初始化地图管理器
-            await map_planner.initialize()
-            flight_scheduler = FlightScheduler()
+            map_planner.initialize_sync()
+            # 加载示例地图数据到地图管理器
+            map_planner.map_manager.load_map_data(map_data['objects'])
+            
+            # 创建环境管理器实例
+            env_manager = EnvironmentManager()
+            # 初始化环境管理器
+            env_manager.ground_height = 0.0  # 设置地面基准高度
+            # 创建飞行调度器并传入环境管理器
+            flight_scheduler = FlightScheduler(env_manager)
             self.scheduler = UnifiedScheduler(map_planner, flight_scheduler)
             
             # 尝试加载之前的系统状态

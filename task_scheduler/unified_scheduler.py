@@ -45,15 +45,9 @@ class Task:
     completion_time: Optional[datetime.datetime]
 
 class UnifiedScheduler:
-    def __init__(self, config: dict):
-        self.config = config
-        self.map_planner = SystemMapPlanner(
-            center=config['map_center'],
-            zoom_start=config['zoom_start']
-        )
-        # 初始化地图管理器
-        await self.map_planner.initialize()
-        self.flight_scheduler = FlightScheduler()
+    def __init__(self, map_planner: SystemMapPlanner, flight_scheduler: FlightScheduler):
+        self.map_planner = map_planner
+        self.flight_scheduler = flight_scheduler
         
         self.vehicles: Dict[str, Vehicle] = {}
         self.tasks: Dict[str, Task] = {}
@@ -169,32 +163,42 @@ class UnifiedScheduler:
     def _scheduler_loop(self):
         """调度主循环"""
         while True:
-            if not self.task_queue.empty():
-                _, _, task_id = self.task_queue.get()
-                task = self.tasks[task_id]
-                
-                if task.status == TaskStatus.PENDING:
-                    if self._assign_task(task):
-                        task.status = TaskStatus.ASSIGNED
-                    else:
-                        # 重新入队，等待后续调度
-                        self.task_queue.put((-task.priority.value, datetime.datetime.now(), task_id))
+            try:
+                if not self.task_queue.empty():
+                    _, _, task_id = self.task_queue.get()
+                    task = self.tasks[task_id]
+                    
+                    if task.status == TaskStatus.PENDING:
+                        if self._assign_task(task):
+                            task.status = TaskStatus.ASSIGNED
+                        else:
+                            # 重新入队，等待后续调度
+                            self.task_queue.put((-task.priority.value, datetime.datetime.now(), task_id))
+            except Exception as e:
+                print(f"调度循环出错: {str(e)}")
+            # 休眠1秒
+            threading.Event().wait(1.0)
 
     def _monitor_loop(self):
         """状态监控循环"""
         while True:
-            current_time = datetime.datetime.now()
-            
-            # 检查车辆状态
-            for vehicle in self.vehicles.values():
-                if (current_time - vehicle.last_updated).total_seconds() > self.config['vehicle_timeout']:
-                    vehicle.status = 'unknown'
-                    
-            # 检查任务截止时间
-            for task in self.tasks.values():
-                if task.deadline and current_time > task.deadline and task.status not in [
-                    TaskStatus.COMPLETED, TaskStatus.FAILED]:
-                    task.status = TaskStatus.FAILED
+            try:
+                current_time = datetime.datetime.now()
+                
+                # 检查车辆状态
+                for vehicle in self.vehicles.values():
+                    if (current_time - vehicle.last_updated).total_seconds() > self.config['vehicle_timeout']:
+                        vehicle.status = 'unknown'
+                        
+                # 检查任务截止时间
+                for task in self.tasks.values():
+                    if task.deadline and current_time > task.deadline and task.status not in [
+                        TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                        task.status = TaskStatus.FAILED
+            except Exception as e:
+                print(f"监控循环出错: {str(e)}")
+            # 休眠1秒
+            threading.Event().wait(1.0)
 
     def update_vehicle_status(self, vehicle_id: str, location: Tuple[float, float],
                             battery: float, status: str, current_payload: float):
@@ -228,20 +232,31 @@ class UnifiedScheduler:
     def get_system_status(self) -> dict:
         """获取系统状态概览"""
         return {
-            'vehicles': {
-                'total': len(self.vehicles),
-                'idle': sum(1 for v in self.vehicles.values() if v.status == 'idle'),
-                'busy': sum(1 for v in self.vehicles.values() if v.status == 'busy'),
-                'unknown': sum(1 for v in self.vehicles.values() if v.status == 'unknown')
-            },
-            'tasks': {
-                'total': len(self.tasks),
-                'pending': sum(1 for t in self.tasks.values() if t.status == TaskStatus.PENDING),
-                'in_progress': sum(1 for t in self.tasks.values() if t.status in [
-                    TaskStatus.ASSIGNED, TaskStatus.PICKUP_REACHED, TaskStatus.TRANSFER_STARTED]),
-                'completed': sum(1 for t in self.tasks.values() if t.status == TaskStatus.COMPLETED),
-                'failed': sum(1 for t in self.tasks.values() if t.status == TaskStatus.FAILED)
-            },
+            'vehicles': [
+                {
+                    'id': v.id,
+                    'type': v.type,
+                    'status': v.status,
+                    'battery_level': v.battery,
+                    'location': v.location,
+                    'max_payload': v.max_payload,
+                    'current_payload': v.current_payload,
+                    'capabilities': v.capabilities
+                } for v in self.vehicles.values()
+            ],
+            'tasks': [
+                {
+                    'id': t.id,
+                    'pickup_point': t.pickup_point,
+                    'delivery_point': t.delivery_point,
+                    'weight': t.weight,
+                    'priority': t.priority,
+                    'status': t.status.value,
+                    'assigned_to': t.assigned_vehicles.get('main', '-'),
+                    'deadline': t.deadline,
+                    'required_capabilities': t.required_capabilities
+                } for t in self.tasks.values()
+            ],
             'delivery_points': len(self.delivery_points)
         }
 
@@ -254,6 +269,18 @@ class UnifiedScheduler:
         }
         with open(filename, 'w') as f:
             json.dump(state, f, default=str)
+            
+    def run(self):
+        """启动调度器"""
+        if not self.scheduler_thread.is_alive():
+            self.scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
+            self.scheduler_thread.start()
+            
+    def run_monitor_loop(self):
+        """启动监控循环"""
+        if not self.status_monitor.is_alive():
+            self.status_monitor = threading.Thread(target=self._monitor_loop, daemon=True)
+            self.status_monitor.start()
 
     def load_state(self, filename: str):
         """从文件加载系统状态"""

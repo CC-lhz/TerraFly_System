@@ -5,12 +5,12 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QPalette
 from typing import Dict, List, Optional, Tuple, Union
 from uuid import uuid4
 
-from .models import (
+from models import (
     ObjectType, ZoneType, PathType,
     Position, MapObject, StaticObject,
     DynamicZone, Path, MapData
 )
-from .signals import MapEditorSignals
+from signals import MapEditorSignals
 
 class MapEditor(QWidget):
     """地图编辑器主类"""

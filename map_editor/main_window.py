@@ -5,9 +5,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QAction, QIcon
 
-from .editor import MapEditor
-from .tools import ToolPanel, PropertyEditor
-from .converter import MapConverter
+from editor import MapEditor
+from tools import ToolPanel, PropertyEditor
+from converter import MapConverter
 
 class MapEditorWindow(QMainWindow):
     """地图编辑器主窗口"""

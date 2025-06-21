@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QPushButton, QLabel, QTextEdit, QTabWidget,
     QProgressBar, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSplitter
+    QHeaderView, QSplitter, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor

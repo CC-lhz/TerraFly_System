@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import QApplication
-from map_editor.main_window import MapEditorWindow
+from main_window import MapEditorWindow
 
 def main():
     """地图编辑器主程序入口"""

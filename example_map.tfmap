@@ -1,0 +1,86 @@
+{
+    "objects": [
+        {
+            "id": "building_1",
+            "type": "building",
+            "name": "配送中心",
+            "description": "主要配送中心",
+            "position": [31.2287, 121.4726],
+            "radius": 50,
+            "height": 30
+        },
+        {
+            "id": "station_1",
+            "type": "station",
+            "name": "充电站A",
+            "description": "北区充电站",
+            "position": [31.2297, 121.4736],
+            "radius": 20,
+            "height": 10
+        },
+        {
+            "id": "station_2",
+            "type": "station",
+            "name": "充电站B",
+            "description": "南区充电站",
+            "position": [31.2277, 121.4716],
+            "radius": 20,
+            "height": 10
+        },
+        {
+            "id": "obstacle_1",
+            "type": "obstacle",
+            "name": "施工区",
+            "description": "临时施工区域",
+            "position": [31.2282, 121.4731],
+            "radius": 30,
+            "height": 40
+        },
+        {
+            "id": "restricted_1",
+            "type": "restricted",
+            "name": "禁飞区",
+            "description": "永久禁飞区域",
+            "points": [
+                [31.2292, 121.4741],
+                [31.2292, 121.4751],
+                [31.2282, 121.4751],
+                [31.2282, 121.4741]
+            ]
+        },
+        {
+            "id": "traffic_1",
+            "type": "traffic",
+            "name": "交通管制区",
+            "description": "临时交通管制区域",
+            "points": [
+                [31.2272, 121.4721],
+                [31.2272, 121.4731],
+                [31.2262, 121.4731],
+                [31.2262, 121.4721]
+            ]
+        },
+        {
+            "id": "road_1",
+            "type": "road",
+            "name": "配送路线A",
+            "description": "主要配送路线",
+            "points": [
+                [31.2287, 121.4726],
+                [31.2297, 121.4736],
+                [31.2277, 121.4716]
+            ]
+        },
+        {
+            "id": "air_1",
+            "type": "air",
+            "name": "航线B",
+            "description": "无人机航线",
+            "points": [
+                [31.2287, 121.4726],
+                [31.2282, 121.4731],
+                [31.2277, 121.4716]
+            ]
+        }
+    ]
+}

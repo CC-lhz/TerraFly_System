@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional, Union
 from datetime import datetime
 
-from .models import (
+from models import (
     ObjectType, ZoneType, PathType,
     Position, MapObject, StaticObject,
     DynamicZone, Path, MapData

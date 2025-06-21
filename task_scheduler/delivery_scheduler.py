@@ -39,7 +39,7 @@ class DeliveryTask:
     created_time: datetime.datetime = datetime.datetime.now()
 
 class DeliveryScheduler:
-    def __init__(self, map_planner: BaiduMapPlanner, flight_scheduler: FlightScheduler):
+    def __init__(self, map_planner, flight_scheduler):
         self.map_planner = map_planner
         self.flight_scheduler = flight_scheduler
         self.delivery_points: Dict[str, DeliveryPoint] = {}

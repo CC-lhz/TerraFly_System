@@ -8,8 +8,13 @@ class SystemMapPlanner(MapPlanner):
         self.map_manager = MapManager()
         
     async def initialize(self):
-        """初始化地图管理器"""
+        """初始化地图管理器（异步方法）"""
         await self.map_manager.initialize()
+    
+    def initialize_sync(self):
+        """初始化地图管理器（同步方法）"""
+        # 由于GUI是同步的，这里使用同步方式初始化
+        self.map_manager.initialize_sync()
     
     def get_global_path(self, start: Tuple[float, float], goal: Tuple[float, float], vehicle_type: str = "driving") -> List[Tuple[float, float]]:
         """使用系统地图管理器获取全局路径规划

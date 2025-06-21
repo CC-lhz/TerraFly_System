@@ -33,10 +33,21 @@ class MapManager:
         self.max_drones_per_zone = 5  # 每个空域允许的最大无人机数量
     
     async def initialize(self):
-        """初始化地图管理器"""
+        """初始化地图管理器（异步方法）"""
         self.logger.info('地图管理器初始化')
         await self.load_map_layers()
         await self.load_restricted_areas()
+    
+    def initialize_sync(self):
+        """初始化地图管理器（同步方法）"""
+        self.logger.info('地图管理器同步初始化')
+        # 同步方式加载地图数据
+        self.map_layers[MapLayerType.TERRAIN] = {}
+        self.map_layers[MapLayerType.TRAFFIC] = {}
+        self.map_layers[MapLayerType.WEATHER] = {}
+        self.map_layers[MapLayerType.RESTRICTED] = {}
+        # 初始化限制区域
+        self.restricted_areas = []
     
     async def load_map_layers(self):
         """加载地图图层"""
@@ -86,6 +97,48 @@ class MapManager:
     def add_restricted_area(self, area: Dict):
         """添加限制区域"""
         self.restricted_areas.append(area)
+        
+    def load_map_data(self, map_data: Dict):
+        """加载地图数据"""
+        self.logger.info('开始加载地图数据')
+        
+        # 清空现有数据
+        self.obstacles = []
+        self.restricted_areas = []
+        
+        # 处理地图对象
+        for obj in map_data:
+            if obj['type'] == 'building':
+                self.add_obstacle({
+                    'id': obj['id'],
+                    'lat': obj['position'][0],
+                    'lon': obj['position'][1],
+                    'radius': obj.get('radius', 50),  # 默认半径50米
+                    'height': obj.get('height', 30)   # 默认高度30米
+                })
+            elif obj['type'] == 'obstacle':
+                self.add_obstacle({
+                    'id': obj['id'],
+                    'lat': obj['position'][0],
+                    'lon': obj['position'][1],
+                    'radius': obj.get('radius', 100),  # 默认半径100米
+                    'height': obj.get('height', 50)    # 默认高度50米
+                })
+            elif obj['type'] == 'restricted':
+                self.add_restricted_area({
+                    'id': obj['id'],
+                    'points': obj['points'],  # 使用多边形点列表
+                    'type': 'no_fly_zone'
+                })
+            elif obj['type'] == 'traffic':
+                self.add_restricted_area({
+                    'id': obj['id'],
+                    'points': obj['points'],  # 使用多边形点列表
+                    'type': 'traffic_control'
+                })
+        
+        self.logger.info(f'地图数据加载完成：{len(self.obstacles)}个障碍物，{len(self.restricted_areas)}个限制区域')
+
     
     def remove_restricted_area(self, area_id: str):
         """移除限制区域"""

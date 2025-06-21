@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import math
 import numpy as np
 from datetime import datetime, timedelta
-from ground_control.environment_init import EnvironmentManager
+from car.ground_control.environment_init import EnvironmentManager
 
 @dataclass
 class FlightPath:
